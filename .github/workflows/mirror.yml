@@ -1,0 +1,59 @@
+name: Sync Upstream Release
+
+on:
+  # 每天 UTC 时间 2 点运行一次
+  schedule:
+    - cron: '0 2 * * *'
+  # 同样允许手动触发
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # 步骤 1: 获取上游（原作者）的最新 Release Tag
+      - name: Get latest upstream release tag
+        id: get_upstream_release
+        uses: joutvhu/get-release-action@v1
+        with:
+          owner: XIU2
+          repo: CloudflareSpeedTest
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 步骤 2: 获取我们自己（镜像）的最新 Release Tag
+      - name: Get latest mirror release tag
+        id: get_mirror_release
+        uses: joutvhu/get-release-action@v1
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 步骤 3: 比较版本，如果上游版本更新，则继续
+      - name: Compare tags and continue if newer
+        id: compare_tags
+        if: steps.get_upstream_release.outputs.tag_name != steps.get_mirror_release.outputs.tag_name
+        run: echo "New version found: ${{ steps.get_upstream_release.outputs.tag_name }}. Proceeding to mirror."
+
+      # 步骤 4: 如果版本更新，下载上游 Release 的所有 assets
+      - name: Download assets from upstream
+        if: steps.compare_tags.conclusion == 'success'
+        uses: robinraju/release-downloader@v1.8
+        with:
+          repository: "XIU2/CloudflareSpeedTest"
+          tag: ${{ steps.get_upstream_release.outputs.tag_name }}
+          # GITHUB_TOKEN 是 GitHub Actions 自动提供的，有下载权限
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      # 步骤 5: 在我们自己的仓库创建新 Release 并上传所有 assets
+      - name: Create new release and upload assets
+        if: steps.compare_tags.conclusion == 'success'
+        uses: softprops/action-gh-release@v1
+        with:
+          # 使用上游的 tag 作为我们新 Release 的 tag
+          tag_name: ${{ steps.get_upstream_release.outputs.tag_name }}
+          # 把下载的所有文件（*.*）都上传
+          files: "./*.*"
+        env:
+          # 这个 GITHUB_TOKEN 有创建 Release 的权限
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
