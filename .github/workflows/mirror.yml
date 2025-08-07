@@ -11,6 +11,11 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    
+    # --- 新增：在这里明确授予本次任务写入权限 ---
+    permissions:
+      contents: write
+
     steps:
       # 步骤 1: 获取上游（原作者）的最新版本号
       - name: Get latest upstream release tag
@@ -23,7 +28,7 @@ jobs:
       - name: Get latest mirror release tag
         id: get_mirror_tag
         run: |
-          LATEST_TAG=$(curl -sL -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r .tag_name)
+          LATEST_TAG=$(curl -sL -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r .tag_name || echo "tag=null")
           echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
 
       # 步骤 3: 如果版本更新，则下载所有附件
@@ -34,12 +39,9 @@ jobs:
           UPSTREAM_TAG=${{ steps.get_upstream_tag.outputs.tag }}
           echo "New version found: ${UPSTREAM_TAG}. Proceeding to download all assets."
           
-          # 直接从 API 获取该版本的所有附件的下载链接
           API_URL="https://api.github.com/repos/XIU2/CloudflareSpeedTest/releases/tags/${UPSTREAM_TAG}"
           echo "Fetching asset list from ${API_URL}"
 
-          # 使用 jq 提取所有附件的下载 URL，然后用一个循环和 wget 全部下载下来
-          # 这是最可靠的方式
           ASSET_URLS=$(curl -sL -H "Accept: application/vnd.github.v3+json" "${API_URL}" | jq -r '.assets[].browser_download_url')
           
           if [ -z "$ASSET_URLS" ]; then
@@ -59,7 +61,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.get_upstream_tag.outputs.tag }}
-          # 使用通配符 *.* 上传当前目录下所有下载好的文件
           files: |
             *.tar.gz
             *.zip
