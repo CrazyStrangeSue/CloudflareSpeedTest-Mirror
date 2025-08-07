@@ -11,45 +11,41 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      # 步骤 1: 获取上游（原作者）的最新 Release Tag
+      # 步骤 1: 使用 curl 和 jq 直接从 API 获取上游（原作者）的最新版本号
       - name: Get latest upstream release tag
-        id: get_upstream_release
-        uses: joutvhu/get-release-action@v1
-        with:
-          owner: XIU2
-          repo: CloudflareSpeedTest
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      # 步骤 2: 获取我们自己（镜像）的最新 Release Tag
-      # 我们添加了 continue-on-error: true，这样即使我们仓库是空的、没有 release，这个步骤也不会失败
+        id: get_upstream_tag
+        run: |
+          LATEST_TAG=$(curl -s -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/XIU2/CloudflareSpeedTest/releases/latest" | jq -r .tag_name)
+          echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+        
+      # 步骤 2: 使用 curl 和 jq 获取我们自己（镜像）的最新版本号
       - name: Get latest mirror release tag
-        id: get_mirror_release
-        uses: joutvhu/get-release-action@v1
-        continue-on-error: true
-        with:
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+        id: get_mirror_tag
+        run: |
+          LATEST_TAG=$(curl -s -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r .tag_name)
+          echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
 
-      # 步骤 3: 下载上游 Release 的所有 assets
-      # 我们直接在这里进行版本比较
-      - name: Download assets from upstream
-        if: steps.get_upstream_release.outputs.tag_name != steps.get_mirror_release.outputs.tag_name
-        uses: robinraju/release-downloader@v1.8
-        with:
-          repository: "XIU2/CloudflareSpeedTest"
-          tag: ${{ steps.get_upstream_release.outputs.tag_name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          
+      # 步骤 3: 比较版本，如果上游版本更新，则继续
+      - name: Compare tags and download assets if newer
+        id: download
+        # 我们在这里直接进行版本比较
+        if: steps.get_upstream_tag.outputs.tag != steps.get_mirror_tag.outputs.tag
+        run: |
+          UPSTREAM_TAG=${{ steps.get_upstream_tag.outputs.tag }}
+          echo "New version found: ${UPSTREAM_TAG}. Proceeding to download."
+          # 使用 release-downloader 下载上游 Release 的所有 assets
+          # 我们把下载步骤也整合到这里
+          curl -L https://github.com/robinraju/release-downloader/releases/latest/download/release-downloader-linux-amd64 -o release-downloader
+          chmod +x ./release-downloader
+          ./release-downloader --repo "XIU2/CloudflareSpeedTest" --tag "${UPSTREAM_TAG}" --token "${{ secrets.GITHUB_TOKEN }}"
+
       # 步骤 4: 在我们自己的仓库创建新 Release 并上传所有 assets
-      # 同样，直接在这里进行版本比较
       - name: Create new release and upload assets
-        if: steps.get_upstream_release.outputs.tag_name != steps.get_mirror_release.outputs.tag_name
-        uses: softprops/action-gh-release@v1
+        # 仅当上一步（下载）成功执行时才运行
+        if: steps.download.conclusion == 'success'
+        uses: softprops/action-gh-release@v2
         with:
           # 使用上游的 tag 作为我们新 Release 的 tag
-          tag_name: ${{ steps.get_upstream_release.outputs.tag_name }}
+          tag_name: ${{ steps.get_upstream_tag.outputs.tag }}
           # 把下载的所有文件（*.*）都上传
           files: "./*.*"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
