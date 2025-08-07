@@ -28,15 +28,20 @@ jobs:
       # 步骤 3: 比较版本，如果上游版本更新，则继续
       - name: Compare tags and download assets if newer
         id: download
-        # 我们在这里直接进行版本比较
         if: steps.get_upstream_tag.outputs.tag != steps.get_mirror_tag.outputs.tag
         run: |
           UPSTREAM_TAG=${{ steps.get_upstream_tag.outputs.tag }}
           echo "New version found: ${UPSTREAM_TAG}. Proceeding to download."
-          # 使用 release-downloader 下载上游 Release 的所有 assets
-          # 我们把下载步骤也整合到这里
-          curl -L https://github.com/robinraju/release-downloader/releases/latest/download/release-downloader-linux-amd64 -o release-downloader
+
+          # --- 新增：通过 API 获取 release-downloader 的真实下载地址 ---
+          RELEASER_DOWNLOADER_URL=$(curl -s -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/robinraju/release-downloader/releases/latest" | jq -r '.assets[] | select(.name == "release-downloader-linux-amd64") | .browser_download_url')
+          echo "Downloader URL: ${RELEASER_DOWNLOADER_URL}"
+          
+          # --- 使用获取到的真实 URL 下载 ---
+          curl -L -o release-downloader "${RELEASER_DOWNLOADER_URL}"
           chmod +x ./release-downloader
+          
+          # --- 继续执行原来的任务 ---
           ./release-downloader --repo "XIU2/CloudflareSpeedTest" --tag "${UPSTREAM_TAG}" --token "${{ secrets.GITHUB_TOKEN }}"
 
       # 步骤 4: 在我们自己的仓库创建新 Release 并上传所有 assets
