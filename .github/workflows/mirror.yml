@@ -21,33 +21,30 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # 步骤 2: 获取我们自己（镜像）的最新 Release Tag
+      # 我们添加了 continue-on-error: true，这样即使我们仓库是空的、没有 release，这个步骤也不会失败
       - name: Get latest mirror release tag
         id: get_mirror_release
         uses: joutvhu/get-release-action@v1
+        continue-on-error: true
         with:
           owner: ${{ github.repository_owner }}
           repo: ${{ github.event.repository.name }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 步骤 3: 比较版本，如果上游版本更新，则继续
-      - name: Compare tags and continue if newer
-        id: compare_tags
-        if: steps.get_upstream_release.outputs.tag_name != steps.get_mirror_release.outputs.tag_name
-        run: echo "New version found: ${{ steps.get_upstream_release.outputs.tag_name }}. Proceeding to mirror."
-
-      # 步骤 4: 如果版本更新，下载上游 Release 的所有 assets
+      # 步骤 3: 下载上游 Release 的所有 assets
+      # 我们直接在这里进行版本比较
       - name: Download assets from upstream
-        if: steps.compare_tags.conclusion == 'success'
+        if: steps.get_upstream_release.outputs.tag_name != steps.get_mirror_release.outputs.tag_name
         uses: robinraju/release-downloader@v1.8
         with:
           repository: "XIU2/CloudflareSpeedTest"
           tag: ${{ steps.get_upstream_release.outputs.tag_name }}
-          # GITHUB_TOKEN 是 GitHub Actions 自动提供的，有下载权限
           token: ${{ secrets.GITHUB_TOKEN }}
           
-      # 步骤 5: 在我们自己的仓库创建新 Release 并上传所有 assets
+      # 步骤 4: 在我们自己的仓库创建新 Release 并上传所有 assets
+      # 同样，直接在这里进行版本比较
       - name: Create new release and upload assets
-        if: steps.compare_tags.conclusion == 'success'
+        if: steps.get_upstream_release.outputs.tag_name != steps.get_mirror_release.outputs.tag_name
         uses: softprops/action-gh-release@v1
         with:
           # 使用上游的 tag 作为我们新 Release 的 tag
@@ -55,5 +52,4 @@ jobs:
           # 把下载的所有文件（*.*）都上传
           files: "./*.*"
         env:
-          # 这个 GITHUB_TOKEN 有创建 Release 的权限
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
